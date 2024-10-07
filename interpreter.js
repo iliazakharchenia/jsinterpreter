@@ -5,6 +5,7 @@ const LETTERS_ONLY_PATTERN = /^[A-Za-z]+$/;
 const TRUE_STRING = '1';
 const FALSE_STRING = '0';
 const SETTING_STRING = '=';
+const STRINGS_DEVIDER = ';';
 
 class BinaryLanguageInterpreter {
     // functions
@@ -15,6 +16,8 @@ class BinaryLanguageInterpreter {
 
     // variables
     #variables;
+
+    #isExecuted = false;
 
     #parseFirstLayer(arr) {
         let i = 0;
@@ -118,11 +121,17 @@ class BinaryLanguageInterpreter {
         throw new Error("Third layer is empty!");
     }
 
+    isTerminated() {
+        return this.#isExecuted;
+    }
+
     parseString(str) {
+        if (this.#isExecuted) throw new Error("This interpreter is terminated!");
+
         const arr = str.split(' ');
         const firstLayerTuple = this.#parseFirstLayer(arr);
 
-        //debugger;
+        // debugger;
 
         let secondLayerTuple;
         let thirdLayerValue;
@@ -152,6 +161,9 @@ class BinaryLanguageInterpreter {
             case "return":
                 thirdLayerValue = this.#parseThirdLayer(firstLayerTuple[0], arr, true);
 
+                // cancelling of execution of that current interpreter
+                this.#isExecuted = true;
+
                 break;
         
             default:
@@ -163,13 +175,174 @@ class BinaryLanguageInterpreter {
         return [str, thirdLayerValue];
     }
 
-    constructor() {
+    constructor(startVariablesSet) {
         this.#firstLayerKeywords = new Set(["var", "return", "set"]);
         this.#functions = new Map([
             ["and", [INFINITE_ARGUMENTS_FUNCTION_ARGUMENTS_LENGTH, andFunction]], 
             ["not", [1, notFunction]]
         ]);
         this.#variables = new Map();
+        if (startVariablesSet instanceof Set) {
+            for (const variable of startVariablesSet) {
+                this.#variables.set(variable[0], variable[1]);
+            }
+        }
+    }
+}
+
+class CustomBooleanFunctionWrapper {
+
+    #arguments;
+
+    #function;
+
+    #functionName;
+
+    #functionExecutionInterpreter;
+
+    #functionValidationInterpreter;
+
+    #stringsOfCodeToInterprete = [];
+
+    #isReadyToExecute = false;
+
+    #setValuesToArguments(...values) {
+        if (values.length !== this.#arguments.size) throw new Error("Arguments set size is different!");
+
+        let i = 0;
+        for (const elem of this.#arguments) {
+            elem[1] = values[i];
+            i++;
+        }
+    }
+
+    execute(...values) {
+        // debugger;
+
+        if (!this.#isReadyToExecute) throw new Error("Execution is not ready!");
+        if (values.length !== this.#arguments.size) throw new Error("Arguments set size is different!");
+
+        this.#setValuesToArguments(...values);
+        this.#functionExecutionInterpreter = new BinaryLanguageInterpreter(this.#arguments);
+
+        // interprete all strings
+        let i = 0;
+        let length = this.#stringsOfCodeToInterprete.length;
+        let result;
+        while (i < length) {
+            result = this.#functionExecutionInterpreter.parseString(this.#stringsOfCodeToInterprete[i]);
+            i++;
+        }
+
+        return result;
+    }
+
+    parse(stringsToParse) {
+        if (this.#isReadyToExecute) throw new Error("Function is ready for execution! Don't change it!");
+        if (!Array.isArray(stringsToParse)) throw new Error("Strings to parse a function is not an array!");
+
+        const arr = stringsToParse[0].split(' ');
+        let i = 0;
+        const length = arr.length;
+
+        // parse 'function' keyword
+        let isKeyWordParsed = false;
+        while (i < length) {
+            if (arr[i] === 'function') {
+                isKeyWordParsed = true;
+                i++;
+                break;
+            }
+            i++;
+        }
+        if (!isKeyWordParsed) throw new Error("Function 'function' keyword is not exists!");
+
+        // parse function name
+        while (i < length) {
+            if (arr[i].match(LETTERS_ONLY_PATTERN)) {
+                this.#functionName = arr[i];
+                i++;
+                break;
+            }
+            i++;
+        }
+
+        // parse function from arguments string separator
+        let isSeparatorParsed = false;
+        while (i < length) {
+            if (arr[i] === ':') {
+                isSeparatorParsed = true;
+                i++;
+                break;
+            }
+            i++;
+        }
+        if (!isSeparatorParsed) throw new Error("Function name declaration is not separated by ':' separator symbol from the arguments!");
+
+        // parse function arguments names
+        isSeparatorParsed = false;
+        while (i < length) {
+            if (arr[i].match(LETTERS_ONLY_PATTERN) && !this.#arguments.has([arr[i], FALSE_STRING])) {
+                this.#arguments.add([arr[i], FALSE_STRING]);
+            }
+            else if (arr[i] !== DEFAULT_PARSE_STRING) {
+                if (arr[i] === '=') {
+                    break;
+                }
+                throw new Error("Function parsing problem: non valid argument name! Argument name: '"+arr[i]+"'.");
+            }
+            i++;
+        }
+
+        // parse function from body separator
+        isSeparatorParsed = false;
+        while (i < length) {
+            if (arr[i] === '=') {
+                i++;
+                isSeparatorParsed = true;
+                break;
+            }
+            i++;
+        }
+        if (!isSeparatorParsed) throw new Error("Function arguments declaration is not separated by '=' separator symbol from the body!");
+
+        // create and return function object after validations
+        this.#functionValidationInterpreter = new BinaryLanguageInterpreter(this.#arguments);
+        let stringNum = 1;
+        let stringsArrayLength = stringsToParse.length;
+        while (stringNum < stringsArrayLength) {
+            try {
+                this.#functionValidationInterpreter.parseString(stringsToParse[stringNum]);
+            } catch (error) {
+                throw new Error("Function parsing failed! Trace: \nfunction name -> "+
+                    this.#functionName+" , \nfunction arguments -> "+this.#arguments+" , \nreason -> "+error);
+            }
+            this.#stringsOfCodeToInterprete.push(stringsToParse[stringNum]);
+            stringNum++;
+        }
+        this.#isReadyToExecute = true;
+        this.#function = [this.#functionName, [this.#arguments.size, this.execute]];
+
+        return this.#function;
+    }
+
+    constructor() {
+        this.#arguments = new Set();
+    }
+}
+
+class CodeParser {
+
+    #functions = [];
+
+    #codeForInterpretor = [];
+
+    #mainInterpretor = new BinaryLanguageInterpreter();
+    
+    execute() {
+    }
+
+    constructor(code) {
     }
 }
 
