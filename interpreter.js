@@ -5,11 +5,14 @@ const LETTERS_ONLY_PATTERN = /^[A-Za-z]+$/;
 const TRUE_STRING = '1';
 const FALSE_STRING = '0';
 const SETTING_STRING = '=';
-const STRINGS_DEVIDER = ';';
+const STRINGS_DEVIDER = '\n';
 
 class BinaryLanguageInterpreter {
     // functions
     #functions;
+
+    // custom functions wrapped in objects
+    #wrappedFunctions = new Map();
 
     // first layer
     #firstLayerKeywords;
@@ -49,6 +52,7 @@ class BinaryLanguageInterpreter {
         const length = arr.length;
         let argumentsArray = [];
         let functionReference;
+        let wrappedFunctionName;
 
         // parse function name
         while (i < length) {
@@ -56,6 +60,19 @@ class BinaryLanguageInterpreter {
                 functionReference = this.#functions.get(arr[i]);
                 i++;
                 break;
+            } else {
+                // create a function reference object if function is wrapped into the object
+                if (this.#wrappedFunctions.has(arr[i])) {
+                    wrappedFunctionName = arr[i];
+                    functionReference = [
+                        this.#wrappedFunctions.get(wrappedFunctionName)[0], 
+                        (args) => {
+                            return this.#wrappedFunctions.get(wrappedFunctionName)[1].execute(...args);
+                        }
+                    ];
+                    i++;
+                    break;
+                }
             }
             i++;
         }
@@ -73,11 +90,13 @@ class BinaryLanguageInterpreter {
         }
         if (argumentsSetLength !== argumentsArray.length 
             && argumentsSetLength !== INFINITE_ARGUMENTS_FUNCTION_ARGUMENTS_LENGTH) 
-            throw new Error("Arguments set quantity of the called function is different then provided!");
+            throw new Error("Arguments set quantity of the called function is different then provided! Provided: "
+                +argumentsSetLength+", actual: "+argumentsArray.length);
 
         // execute function and return result
         if (argumentsSetLength === 1) return functionReference[1](argumentsArray[0]);
-        else if (argumentsSetLength > 1 || argumentsSetLength === INFINITE_ARGUMENTS_FUNCTION_ARGUMENTS_LENGTH) return functionReference[1](argumentsArray);
+        else if (argumentsSetLength > 1 || argumentsSetLength === INFINITE_ARGUMENTS_FUNCTION_ARGUMENTS_LENGTH) 
+            return functionReference[1](argumentsArray);
 
         throw new Error("Function call is empty!");
     }
@@ -122,7 +141,7 @@ class BinaryLanguageInterpreter {
     }
 
     isTerminated() {
-        return this.#isExecuted;
+        return this.#isExecuted.valueOf();
     }
 
     parseString(str) {
@@ -175,7 +194,7 @@ class BinaryLanguageInterpreter {
         return [str, thirdLayerValue];
     }
 
-    constructor(startVariablesSet) {
+    constructor(startVariablesSet, startCustomFunctionsSet) {
         this.#firstLayerKeywords = new Set(["var", "return", "set"]);
         this.#functions = new Map([
             ["and", [INFINITE_ARGUMENTS_FUNCTION_ARGUMENTS_LENGTH, andFunction]], 
@@ -185,6 +204,17 @@ class BinaryLanguageInterpreter {
         if (startVariablesSet instanceof Set) {
             for (const variable of startVariablesSet) {
                 this.#variables.set(variable[0], variable[1]);
+            }
+        }
+        if (startCustomFunctionsSet instanceof Set) {
+            for (const func of startCustomFunctionsSet) {
+                if (!this.#functions.has(func[0])) {
+                    // if func is function wrapper type
+                    if (typeof func[1][1] === 'object') {
+                        this.#wrappedFunctions.set(func[0], func[1]);
+                    } else this.#functions.set(func[0], func[1]);
+                }
+                else throw new Error("This interpreter is already have function with such name!");
             }
         }
     }
@@ -216,10 +246,12 @@ class CustomBooleanFunctionWrapper {
         }
     }
 
-    execute(...values) {
-        // debugger;
+    canBeExecuted() {
+        return this.#isReadyToExecute.valueOf();
+    }
 
-        if (!this.#isReadyToExecute) throw new Error("Execution is not ready!");
+    execute(...values) {
+        if (!this.canBeExecuted()) throw new Error("Execution is not ready!");
         if (values.length !== this.#arguments.size) throw new Error("Arguments set size is different!");
 
         this.#setValuesToArguments(...values);
@@ -234,11 +266,11 @@ class CustomBooleanFunctionWrapper {
             i++;
         }
 
-        return result;
+        return result[1];
     }
 
     parse(stringsToParse) {
-        if (this.#isReadyToExecute) throw new Error("Function is ready for execution! Don't change it!");
+        if (this.canBeExecuted()) throw new Error("Function is ready for execution! Don't change it!");
         if (!Array.isArray(stringsToParse)) throw new Error("Strings to parse a function is not an array!");
 
         const arr = stringsToParse[0].split(' ');
@@ -321,7 +353,8 @@ class CustomBooleanFunctionWrapper {
             stringNum++;
         }
         this.#isReadyToExecute = true;
-        this.#function = [this.#functionName, [this.#arguments.size, this.execute]];
+
+        this.#function = [this.#functionName, [this.#arguments.size, this]];
 
         return this.#function;
     }
@@ -331,18 +364,93 @@ class CustomBooleanFunctionWrapper {
     }
 }
 
-class CodeParser {
+class CodeReceiver {
 
-    #functions = [];
+    #functionsStringArrays = [];
 
-    #codeForInterpretor = [];
+    #codeForInterpreter = [];
 
-    #mainInterpretor = new BinaryLanguageInterpreter();
+    #mainInterpreter;
+
+    #parseFirstKeyword(string) {
+        const words = string.split(" ");
+
+        const length = words.length;
+        let i = 0;
+
+        while (i < length) {
+            const word = words[i];
+            if (word === "var" || word === "set" || word === "return" || word === "function") {
+                return word;
+            }
+            i++;
+        }
+
+        throw new Error("String is not contains any first layer keywords or is not empty!");
+    }
     
     execute() {
+        if (this.#mainInterpreter.isTerminated()) return new Error("Main interpreter is terminated");
+
+        let result;
+        this.#codeForInterpreter.forEach(codeString => {
+            result = this.#mainInterpreter.parseString(codeString);
+        });
+
+        return result[1];
     }
 
     constructor(code) {
+        const allStrings = code.split(STRINGS_DEVIDER);
+        let i = 0;
+        let length = allStrings.length;
+
+        // debugger;
+
+        // devide all strings into functions strings and code for interpreter
+        while (i < length) {
+            if (allStrings[i] === DEFAULT_PARSE_STRING) {
+                i++;
+                continue;
+            }
+
+            const word = this.#parseFirstKeyword(allStrings[i]);
+
+            // parse function strings
+            if (word === "function") {
+                this.#functionsStringArrays.push([]);
+
+                // fetch function strings
+                while (i < length) {
+                    const functionWord = this.#parseFirstKeyword(allStrings[i]);
+
+                    if (functionWord === "return") {
+                        this.#functionsStringArrays[this.#functionsStringArrays.length-1].push(allStrings[i]);
+                        i++;
+                        break;
+                    } else {
+                        this.#functionsStringArrays[this.#functionsStringArrays.length-1].push(allStrings[i]);
+                        i++;
+                    }
+                }
+            }
+            else {
+                // parse interpreter strings
+                this.#codeForInterpreter.push(allStrings[i]);
+                i++;
+            }
+        }
+
+        // functions set creation and setting
+        let functionsSet = new Set();
+        length = this.#functionsStringArrays.length;
+        for (let index = 0; index < length; index++) {
+            const functionStrings = this.#functionsStringArrays[index];
+            functionsSet.add((new CustomBooleanFunctionWrapper()).parse(functionStrings));
+        }
+
+        // main interpreter creation
+        this.#mainInterpreter = new BinaryLanguageInterpreter(null, functionsSet);
     }
 }
 

@@ -70,9 +70,19 @@ function functionTest() {
     console.log("---");
 }
 
-function debug() {
-    console.log("---> debug");
+function code_parser_test() {
+    console.log("---> code_parser_test");
     let code = "";
+
+    code = code.concat("function twoNand : a b =\n");
+    code = code.concat("var x = 0\n");
+    code = code.concat("var y = 0\n");
+    code = code.concat("var ans = 0\n");
+    code = code.concat("set ans = and a b\n");
+    code = code.concat("set ans = not ans\n");
+    code = code.concat("return ans\n");
+
+    code = code.concat("\n");
 
     code = code.concat("function twoOr : a b =\n");
     code = code.concat("var x = 0\n");
@@ -86,23 +96,26 @@ function debug() {
 
     code = code.concat("\n");
 
-    code = code.concat("var x = 0\n");
+    code = code.concat("var x = 1\n");
     code = code.concat("var y = 0\n");
     code = code.concat("var ans = 0\n");
-    code = code.concat("set ans = twoOr x y\n");
+    code = code.concat("set ans = twoNand x y\n");
+    code = code.concat("set ans = twoOr ans ans\n");
     code = code.concat("return ans\n");
 
     console.log(code);
-
+    let cr = new CodeReceiver(code);
+    // console.log(cr);
     console.log("test: ");
+    console.log(cr.execute());
+
     console.log("---");
 }
 
-// test_single_set_string_parse();
-// test_multiple_set_and_return_string_parse();
-// test_multiple_set_and_function_use_then_return_string_with_not_function_call_parse();
-// test_multiple_set_and_function_use_then_return_string_with_and_function_call_parse();
-// or_procedure_test();
-// functionTest();
-
-debug();
+test_single_set_string_parse();
+test_multiple_set_and_return_string_parse();
+test_multiple_set_and_function_use_then_return_string_with_not_function_call_parse();
+test_multiple_set_and_function_use_then_return_string_with_and_function_call_parse();
+or_procedure_test();
+functionTest();
+code_parser_test();
